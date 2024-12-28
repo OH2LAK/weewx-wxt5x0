@@ -487,7 +487,7 @@ class WXT5x0Driver(weewx.drivers.AbstractDevice):
         'heatingVoltage': 'heating_voltage',
         'supplyVoltage': 'supply_voltage',
         'referenceVoltage': 'reference_voltage',
-        }
+    }
 
     def __init__(self, **stn_dict):
         loginf('driver version is %s' % DRIVER_VERSION)
@@ -503,8 +503,13 @@ class WXT5x0Driver(weewx.drivers.AbstractDevice):
         baud = WXT5x0Driver.STATION[protocol].DEFAULT_BAUD
         baud = int(stn_dict.get('baud', baud))
         port = stn_dict.get('port', WXT5x0Driver.DEFAULT_PORT)
+        tcp_address = stn_dict.get('tcp_address', 'localhost')
+        tcp_port = int(stn_dict.get('tcp_port', 5000))
         self.last_rain_total = None
-        self._station = WXT5x0Driver.STATION.get(protocol)(address, port, baud)
+        if protocol == 'tcp':
+            self._station = WXT5x0Driver.STATION.get(protocol)(tcp_address, tcp_port)
+        else:
+            self._station = WXT5x0Driver.STATION.get(protocol)(address, port, baud)
         self._station.open()
 
     def closePort(self):
@@ -513,7 +518,7 @@ class WXT5x0Driver(weewx.drivers.AbstractDevice):
     @property
     def hardware_name(self):
         return self._model
-                    
+
     def genLoopPackets(self):
         while True:
             for cnt in range(self._max_tries):
@@ -596,6 +601,10 @@ if __name__ == '__main__':
                       help='baud rate', default=19200)
     parser.add_option('--address', type=int,
                       help='device address', default=0)
+    parser.add_option('--tcp_address',
+                      help='TCP address', default='localhost')
+    parser.add_option('--tcp_port', type=int,
+                      help='TCP port', default=5000)
     parser.add_option('--poll-interval', metavar='POLL', type=int,
                       help='poll interval, in seconds', default=3)
     parser.add_option('--get-wind',
@@ -617,13 +626,12 @@ if __name__ == '__main__':
     elif options.protocol == 'tcp':
         driver = WXT5x0Driver(model='WXT520',
                               protocol=options.protocol,
-                              port=options.port,
-                              address=options.address,
+                              tcp_address=options.tcp_address,
+                              tcp_port=options.tcp_port,
                               poll_interval=options.poll_interval,
                               max_tries=3,
                               retry_wait=10,
-                              timeout=5,
-                              baudrate=options.baud)
+                              timeout=5)
     else:
         driver = WXT5x0Driver(model='WXT520',
                               protocol=options.protocol,
