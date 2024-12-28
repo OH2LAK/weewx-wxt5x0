@@ -1,4 +1,5 @@
-wxt5x0
+Vaisala wxt5x0 driver for WeeWX
+
 Copyright 2017-2024 Matthew Wall
 Modifications by Erik Finskas 2024 to add TCP option to connect to a TCP serial server instead of using a local serial port
 Distributed under terms of the GPLv3
@@ -19,3 +20,7 @@ Installation
 3) restart weeWX
 
   sudo systemctl restart weewx
+
+If you are having difficulties getting the WXT5x0 driver to show on the list of available drivers,
+use this workaround: (For some reason the user driver installation path is not visible for the configuration script)
+ln -s /etc/weewx/bin/user/wxt5x0.py /usr/share/weewx/weewx/drivers/wxt5x0.py
