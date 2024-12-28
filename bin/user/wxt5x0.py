@@ -433,6 +433,64 @@ class StationTCP(Station):
             line = line.replace(b'\x00', b'')  # eliminate any NULL characters
         return line
 
+class WXT5x0ConfigurationEditor(weewx.drivers.AbstractConfEditor):
+    @property
+    def default_stanza(self):
+        return """
+[WXT5x0]
+    # This section is for Vaisala WXT5x0 stations
+
+    # The station model such as WXT510 or WXT520
+    model = WXT520
+
+    # The communication protocol to use, one of serial, nmea, sdi12 or tcp
+    protocol = serial
+
+    # The port to which the station is connected
+    port = /dev/ttyUSB0
+
+    # The device address
+    address = 0
+
+    # The TCP address of the serial port server (if using TCP)
+    tcp_address = localhost
+
+    # The TCP port of the serial port server (if using TCP)
+    # Default is 5000
+    tcp_port = 5000
+
+    # The driver to use
+    driver = user.wxt5x0
+"""
+
+    def prompt_for_settings(self):
+        print("Specify the model (WXT510 or WXT520)")
+        model = self._prompt('model', 'WXT520', ['WXT510', 'WXT520'])
+        
+        print("Specify the protocol (serial, nmea, sdi12 or tcp)")
+        protocol = self._prompt('protocol', 'serial', ['serial', 'nmea', 'sdi12', 'tcp'])
+        
+        if protocol == 'tcp':
+            print("Specify the TCP address of the serial port server")
+            tcp_address = self._prompt('tcp_address', 'localhost')
+            
+            print("Specify the TCP port of the serial port server")
+            tcp_port = self._prompt('tcp_port', 5000)
+            
+            print("Specify the device address")
+            address = self._prompt('address', 0)
+            
+            return {'model': model, 'protocol': protocol, 'tcp_address': tcp_address, 'tcp_port': tcp_port, 'address': address}
+        
+        else:
+            print("Specify the serial port on which the station is connected, for example /dev/ttyUSB0 or /dev/ttyS0.")
+            port = self._prompt('port', '/dev/ttyUSB0')
+            
+            print("Specify the device address")
+            address = self._prompt('address', 0)
+            
+            return {'model': model, 'protocol': protocol, 'port': port, 'address': address}
+
 class WXT5x0Driver(weewx.drivers.AbstractDevice):
     STATION = {
         'sdi12': StationSDI12,
@@ -601,6 +659,7 @@ if __name__ == '__main__':
                               tcp_address=options.tcp_address,
                               tcp_port=options.tcp_port,
                               poll_interval=options.poll_interval,
+                              address=options.address,
                               max_tries=3,
                               retry_wait=10,
                               timeout=5)
