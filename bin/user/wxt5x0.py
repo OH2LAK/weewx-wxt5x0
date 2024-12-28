@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # Copyright 2017-2024 Matthew Wall, all rights reserved
 # Distributed under terms of the GPLv3
-# Modified by Erik Finskas OH2LAK 2024 to support remote TCP serial port server instead of a local serial port
+# Modified by: Erik Finskas OH2LAK 2024 to support TCP/IP connection to Vaisala WXT5
 """
 Collect data from Vaisala WXT510 or WXT520 station.
 
@@ -612,14 +612,13 @@ if __name__ == '__main__':
                       help='verify the CRC calculation')
     (options, args) = parser.parse_args()
 
-if options.version:
-    print("%s driver version %s" % (DRIVER_NAME, DRIVER_VERSION))
-else:
-    if options.protocol == 'tcp':
+    if options.version:
+        print("%s driver version %s" % (DRIVER_NAME, DRIVER_VERSION))
+    elif options.protocol == 'tcp':
         driver = WXT5x0Driver(model='WXT520',
                               protocol=options.protocol,
-                              port=options.tcp_port,
-                              address=options.tcp_address,
+                              port=options.port,
+                              address=options.address,
                               poll_interval=options.poll_interval,
                               max_tries=3,
                               retry_wait=10,
@@ -635,7 +634,7 @@ else:
                               retry_wait=10,
                               timeout=5,
                               baudrate=options.baud)
-    driver.open()
+    driver._station.open()
     try:
         if options.get_wind:
             print(driver.get_wind())
@@ -648,7 +647,7 @@ else:
         elif options.get_composite:
             print(driver.get_composite())
         elif options.test_crc:
-            print(driver.test_crc(options.test_crc))
+            print(Station.calc_crc(options.test_crc))
         else:
             for packet in driver.genLoopPackets():
                 print(packet)
@@ -664,34 +663,24 @@ else:
         print("string: '%s'" % options.test_crc)
         print("crc: '%s'" % Station.calc_crc(options.test_crc))
         exit(0)
-
-    if options.protocol == 'serial':
-        cls = StationSerial
-    elif options.protocol == 'nmea':
-        cls = StationNMEA
-    elif options.protocol == 'sdi12':
-        cls = StationSDI12
-    elif options.protocol == 'tcp':
-        cls = StationTCP
-    else:
-        print("unknown protocol '%s'" % options.protocol)
-        exit(1)
-
-    with cls(options.address, options.port, options.baud) as s:
-        if options.get_wind:
-            print("%s" % s.get_wind().strip())
-        elif options.get_pth:
-            print("%s" % s.get_pth().strip())
+    driver._station.open()
+    try:
+        if options.get_pth:
+            print(driver._station.get_pth().strip())
         elif options.get_precip:
-            print("%s" % s.get_precip().strip())
+            print(driver._station.get_precip().strip())
         elif options.get_supervisor:
-            print("%s" % s.get_supervisor().strip())
+            print(driver._station.get_supervisor().strip())
         elif options.get_composite:
-            print("%s" % s.get_composite().strip())
+            print(driver._station.get_composite().strip())
         else:
             while True:
-                data = s.get_composite().strip()
+                data = driver._station.get_composite().strip()
                 print("%s %s" % (int(time.time()), data))
                 parsed = Station.parse(data)
                 print("%s" % parsed)
                 time.sleep(options.poll_interval)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        driver._station.close()
