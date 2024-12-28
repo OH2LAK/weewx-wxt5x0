@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # Copyright 2017-2024 Matthew Wall, all rights reserved
 # Distributed under terms of the GPLv3
-# Modified by: Erik Finskas OH2LAK 2024 to support TCP/IP connection to Vaisala WXT5
+# Modified by: Erik Finskas OH2LAK 2024 to support TCP/IP connection via TCP serial server
 """
 Collect data from Vaisala WXT510 or WXT520 station.
 
@@ -353,7 +353,6 @@ class Station(object):
                 loginf("unknown unit '%s' for %s" % (unit, obs))
         return value
 
-
 class StationSerial(Station):
     # ASCII over RS232, RS485, and RS422 defaults to 19200, 8, N, 1
     DEFAULT_BAUD = 19200
@@ -375,7 +374,6 @@ class StationSerial(Station):
             self.device.close()
             self.device = None
 
-
 class StationNMEA(Station):
     # RS422 NMEA defaults to 4800, 8, N, 1
     DEFAULT_BAUD = 4800
@@ -393,73 +391,47 @@ class StationSDI12(Station):
         super(StationSDI12, self).__init__(address, port, baud)
         self.terminator = b'!'
         raise NotImplementedError("SDI12 support not implemented")
-
+    
 class StationTCP(Station):
-    def __init__(self, address, port):
-        super(StationTCP, self).__init__(address, port)
+    def __init__(self, tcp_address, tcp_port):
+        super(StationTCP, self).__init__(address=0, port=tcp_port, baud=0)  # Pass default values for address and baud
+        self.tcp_address = tcp_address  # Use the tcp_address as a string
         self.terminator = b'\r\n'
         self.device = None
 
     def open(self):
         import socket
-        logdbg("open TCP connection to %s:%s" % (self.address, self.port))
+        logdbg("open TCP connection to %s:%s" % (self.tcp_address, self.port))
         self.device = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.device.connect((self.address, self.port))
+        self.device.connect((self.tcp_address, self.port))
 
     def close(self):
         if self.device is not None:
-            logdbg("close TCP connection to %s:%s" % (self.address, self.port))
+            logdbg("close TCP connection to %s:%s" % (self.tcp_address, self.port))
             self.device.close()
             self.device = None
 
-    def read(self):
-        if self.device is not None:
-            data = self.device.recv(1024)
-            if data:
-                return data.decode('utf-8')
-        return None
+    def send_cmd(self, cmd):
+        cmd = b"%s%s%s" % (str(self.address).encode(), cmd, self.terminator)  # Use address as a string
+        self.device.sendall(cmd)
 
-class WXT5x0ConfigurationEditor(weewx.drivers.AbstractConfEditor):
-    @property
-    def default_stanza(self):
-        return """
-[WXT5x0]
-    # This section is for Vaisala WXT5x0 stations
+    def readline(self):
+        buffer = b''
+        while True:
+            data = self.device.recv(1)
+            if not data:
+                break
+            buffer += data
+            if buffer.endswith(self.terminator):
+                break
+        return buffer
 
-    # The station model such as WXT510 or WXT520
-    model = WXT520
-
-    # The communication protocol to use, one of serial, nmea, sdi12, or tcp
-    protocol = serial
-
-    # The port to which the station is connected
-    port = /dev/ttyUSB0
-
-    # The device address
-    address = 0
-
-    # The driver to use
-    driver = user.wxt5x0
-"""
-
-    def prompt_for_settings(self):
-        print("Specify the model")
-        model = self._prompt('model', 'WXT520')
-        print("Specify the protocol (serial, nmea, sdi12, or tcp)")
-        protocol = self._prompt('protocol', 'serial', ['serial', 'nmea', 'sdi12', 'tcp'])
-        if protocol == 'tcp':
-            print("Specify the TCP address")
-            address = self._prompt('address', 'localhost')
-            print("Specify the TCP port")
-            port = self._prompt('port', 5000)
-        else:
-            print("Specify the serial port on which the station is connected, for")
-            print("example /dev/ttyUSB0 or /dev/ttyS0.")
-            port = self._prompt('port', '/dev/ttyUSB0')
-            print("Specify the device address")
-            address = self._prompt('address', 0)
-        return {'protocol': protocol, 'port': port, 'address': address}
-
+    def get_data(self, cmd):
+        self.send_cmd(cmd)
+        line = self.readline()
+        if line:
+            line = line.replace(b'\x00', b'')  # eliminate any NULL characters
+        return line
 
 class WXT5x0Driver(weewx.drivers.AbstractDevice):
     STATION = {
@@ -500,8 +472,6 @@ class WXT5x0Driver(weewx.drivers.AbstractDevice):
         protocol = stn_dict.get('protocol', 'serial').lower()
         if protocol not in WXT5x0Driver.STATION:
             raise ValueError("unknown protocol '%s'" % protocol)
-        baud = WXT5x0Driver.STATION[protocol].DEFAULT_BAUD
-        baud = int(stn_dict.get('baud', baud))
         port = stn_dict.get('port', WXT5x0Driver.DEFAULT_PORT)
         tcp_address = stn_dict.get('tcp_address', 'localhost')
         tcp_port = int(stn_dict.get('tcp_port', 5000))
@@ -509,6 +479,8 @@ class WXT5x0Driver(weewx.drivers.AbstractDevice):
         if protocol == 'tcp':
             self._station = WXT5x0Driver.STATION.get(protocol)(tcp_address, tcp_port)
         else:
+            baud = WXT5x0Driver.STATION[protocol].DEFAULT_BAUD
+            baud = int(stn_dict.get('baud', baud))
             self._station = WXT5x0Driver.STATION.get(protocol)(address, port, baud)
         self._station.open()
 
@@ -662,7 +634,7 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         pass
     finally:
-        driver.close()
+        driver.closePort()
 
     if options.debug:
         syslog.setlogmask(syslog.LOG_UPTO(syslog.LOG_DEBUG))
@@ -691,4 +663,4 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         pass
     finally:
-        driver._station.close()
+        driver.closePort()
