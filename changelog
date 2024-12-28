@@ -1,3 +1,6 @@
+0.8 28Dec2024
+* Added possibility to connect directly to a TCP serial port server instead using a local serial port
+
 0.7 21feb2024
 * fixed rain calculation when rain_total is None
 
