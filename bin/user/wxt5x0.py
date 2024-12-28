@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # Copyright 2017-2024 Matthew Wall, all rights reserved
 # Distributed under terms of the GPLv3
+# Modified by: Erik Finskas OH2LAK 2024 to support TCP/IP connection to Vaisala WXT5x0
 """
 Collect data from Vaisala WXT510 or WXT520 station.
 
@@ -84,7 +85,7 @@ except ImportError:
         logmsg(syslog.LOG_ERR, msg)
 
 DRIVER_NAME = 'WXT5x0'
-DRIVER_VERSION = '0.7'
+DRIVER_VERSION = '0.8'
 
 MPS_PER_KPH = 0.277778
 MPS_PER_MPH = 0.44704
@@ -384,7 +385,6 @@ class StationNMEA(Station):
         self.terminator = b'\r\n'
         raise NotImplementedError("NMEA support not implemented")
 
-
 class StationSDI12(Station):
     # SDI12 defaults to 1200, 7, E, 1
     DEFAULT_BAUD = 1200
@@ -394,6 +394,30 @@ class StationSDI12(Station):
         self.terminator = b'!'
         raise NotImplementedError("SDI12 support not implemented")
 
+class StationTCP(Station):
+    def __init__(self, address, port):
+        super(StationTCP, self).__init__(address, port)
+        self.terminator = b'\r\n'
+        self.device = None
+
+    def open(self):
+        import socket
+        logdbg("open TCP connection to %s:%s" % (self.address, self.port))
+        self.device = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.device.connect((self.address, self.port))
+
+    def close(self):
+        if self.device is not None:
+            logdbg("close TCP connection to %s:%s" % (self.address, self.port))
+            self.device.close()
+            self.device = None
+
+    def read(self):
+        if self.device is not None:
+            data = self.device.recv(1024)
+            if data:
+                return data.decode('utf-8')
+        return None
 
 class WXT5x0ConfigurationEditor(weewx.drivers.AbstractConfEditor):
     @property
@@ -405,7 +429,7 @@ class WXT5x0ConfigurationEditor(weewx.drivers.AbstractConfEditor):
     # The station model such as WXT510 or WXT520
     model = WXT520
 
-    # The communication protocol to use, one of serial, nmea, or sdi12
+    # The communication protocol to use, one of serial, nmea, sdi12, or tcp
     protocol = serial
 
     # The port to which the station is connected
@@ -421,13 +445,19 @@ class WXT5x0ConfigurationEditor(weewx.drivers.AbstractConfEditor):
     def prompt_for_settings(self):
         print("Specify the model")
         model = self._prompt('model', 'WXT520')
-        print("Specify the protocol (serial, nmea, or sdi12)")
-        protocol = self._prompt('protocol', 'serial', ['serial', 'nmea', 'sdi12'])
-        print("Specify the serial port on which the station is connected, for")
-        print("example /dev/ttyUSB0 or /dev/ttyS0.")
-        port = self._prompt('port', '/dev/ttyUSB0')
-        print("Specify the device address")
-        address = self._prompt('address', 0)
+        print("Specify the protocol (serial, nmea, sdi12, or tcp)")
+        protocol = self._prompt('protocol', 'serial', ['serial', 'nmea', 'sdi12', 'tcp'])
+        if protocol == 'tcp':
+            print("Specify the TCP address")
+            address = self._prompt('address', 'localhost')
+            print("Specify the TCP port")
+            port = self._prompt('port', 5000)
+        else:
+            print("Specify the serial port on which the station is connected, for")
+            print("example /dev/ttyUSB0 or /dev/ttyS0.")
+            port = self._prompt('port', '/dev/ttyUSB0')
+            print("Specify the device address")
+            address = self._prompt('address', 0)
         return {'protocol': protocol, 'port': port, 'address': address}
 
 
@@ -436,6 +466,7 @@ class WXT5x0Driver(weewx.drivers.AbstractDevice):
         'sdi12': StationSDI12,
         'nmea': StationNMEA,
         'serial': StationSerial,
+        'tcp': StationTCP,
     }
     DEFAULT_PORT = '/dev/ttyUSB0'
 
@@ -557,7 +588,7 @@ if __name__ == '__main__':
     parser.add_option('--debug', action='store_true',
                       help='display diagnostic information while running')
     parser.add_option('--protocol',
-                      help='serial, nmea, or sdi12', default='serial')
+                      help='serial, nmea, sdi12, or tcp', default='serial')
     parser.add_option('--port',
                       help='serial port to which the station is connected',
                       default=WXT5x0Driver.DEFAULT_PORT)
@@ -581,9 +612,50 @@ if __name__ == '__main__':
                       help='verify the CRC calculation')
     (options, args) = parser.parse_args()
 
-    if options.version:
-        print("%s driver version %s" % (DRIVER_NAME, DRIVER_VERSION))
-        exit(1)
+if options.version:
+    print("%s driver version %s" % (DRIVER_NAME, DRIVER_VERSION))
+else:
+    if options.protocol == 'tcp':
+        driver = WXT5x0Driver(model='WXT520',
+                              protocol=options.protocol,
+                              port=options.tcp_port,
+                              address=options.tcp_address,
+                              poll_interval=options.poll_interval,
+                              max_tries=3,
+                              retry_wait=10,
+                              timeout=5,
+                              baudrate=options.baud)
+    else:
+        driver = WXT5x0Driver(model='WXT520',
+                              protocol=options.protocol,
+                              port=options.port,
+                              address=options.address,
+                              poll_interval=options.poll_interval,
+                              max_tries=3,
+                              retry_wait=10,
+                              timeout=5,
+                              baudrate=options.baud)
+    driver.open()
+    try:
+        if options.get_wind:
+            print(driver.get_wind())
+        elif options.get_pth:
+            print(driver.get_pth())
+        elif options.get_precip:
+            print(driver.get_precip())
+        elif options.get_supervisor:
+            print(driver.get_supervisor())
+        elif options.get_composite:
+            print(driver.get_composite())
+        elif options.test_crc:
+            print(driver.test_crc(options.test_crc))
+        else:
+            for packet in driver.genLoopPackets():
+                print(packet)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        driver.close()
 
     if options.debug:
         syslog.setlogmask(syslog.LOG_UPTO(syslog.LOG_DEBUG))
@@ -599,6 +671,8 @@ if __name__ == '__main__':
         cls = StationNMEA
     elif options.protocol == 'sdi12':
         cls = StationSDI12
+    elif options.protocol == 'tcp':
+        cls = StationTCP
     else:
         print("unknown protocol '%s'" % options.protocol)
         exit(1)
@@ -609,7 +683,7 @@ if __name__ == '__main__':
         elif options.get_pth:
             print("%s" % s.get_pth().strip())
         elif options.get_precip:
-            print("%s" % s.get_precipitation().strip())
+            print("%s" % s.get_precip().strip())
         elif options.get_supervisor:
             print("%s" % s.get_supervisor().strip())
         elif options.get_composite:
