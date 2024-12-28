@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # Copyright 2017-2024 Matthew Wall, all rights reserved
 # Distributed under terms of the GPLv3
-# Modified by: Erik Finskas OH2LAK 2024 to support TCP/IP connection to Vaisala WXT5x0
+# Modified by Erik Finskas OH2LAK 2024 to support remote TCP serial port server instead of a local serial port
 """
 Collect data from Vaisala WXT510 or WXT520 station.
 
