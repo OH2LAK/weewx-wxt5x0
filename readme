@@ -1,5 +1,6 @@
 wxt5x0
 Copyright 2017-2024 Matthew Wall
+Modifications by Erik Finskas 2024 to add TCP connection
 Distributed under terms of the GPLv3
 
 This is a driver for weeWX that collects data from Vaisala WXT5x0 hardware.
@@ -9,7 +10,7 @@ Installation
 
 1) install the the driver
 
-  weectl extension install https://github.com/matthewwall/weewx-wxt5x0/archive/master.zip
+  weectl extension install https://github.com/OH2LAK/weewx-wxt5x0/archive/master.zip
 
 2) configure weeWX to use the driver
 
